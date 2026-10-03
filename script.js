@@ -57,7 +57,7 @@ const navLogin         = document.getElementById("navLogin");
 const navProfile       = document.getElementById("navProfile");
 const navNotifications = document.getElementById("navNotifications");
 
-const modeButtons      = document.querySelectorAll(".mode-tile");
+const modeButtons      = document.querySelectorAll(".mode-button[data-mode]");
 const botLevelButtons  = document.querySelectorAll(".bot-level-button");
 
 const ludoBoard        = document.getElementById("ludoBoard");
