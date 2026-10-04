@@ -317,7 +317,7 @@ function pathIsBlocked(color, fromPosition, toPosition) {
     const end   = Math.min(toPosition, LAST_COMMON_POSITION);
     for (let p = start; p <= end; p++) {
         const block = getBlockAtRingIndex(getRingIndex(color, p));
-        if (block && block.color !== color) return true;
+        if (block && block.color !== color) return true; // bloqué par un adversaire
     }
     return false;
 }
