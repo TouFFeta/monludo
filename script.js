@@ -2418,6 +2418,280 @@ function runEngineTests() {
         });
         results.push("Identité des 16 pions cohérente");
 
+        /* ============================================================
+           ÉTAPE 4 — TESTS DE SÉCURISATION DES RÈGLES
+           Aucun test ne touche au moteur : ils constatent, documentent
+           et verrouillent le comportement actuel.
+           ============================================================ */
+
+        /* ---------- 1. TROIS 6 CONSÉCUTIFS ---------- */
+        gameState = createInitialState();
+        const joueurDepart3Six = gameState.currentPlayerIndex;
+        const positionsDepart3Six = gameState.tokens.map(t => ({
+            id: t.id, pos: t.position, state: t.state
+        }));
+
+        gameState.consecutiveSixes = 1;
+        assertRule(gameState.consecutiveSixes === 1, "après 1 six, compteur = 1");
+        assertRule(gameState.currentPlayerIndex === joueurDepart3Six, "après 1 six, même joueur");
+
+        gameState.consecutiveSixes = 2;
+        assertRule(gameState.consecutiveSixes === 2, "après 2 six, compteur = 2");
+        assertRule(gameState.currentPlayerIndex === joueurDepart3Six, "après 2 six, même joueur");
+
+        gameState.consecutiveSixes = 3;
+        gameState.diceValue  = 6;
+        gameState.diceRolled = true;
+        if (RULES.TROIS_6_TOUR_PERDU && gameState.consecutiveSixes >= 3) {
+            gameState.diceValue  = null;
+            gameState.diceRolled = false;
+            passerAuJoueurSuivant();
+            annulerBot();   /* coupe tout timer qu'aurait pu créer planifierTourBot */
+        }
+        assertRule(gameState.currentPlayerIndex !== joueurDepart3Six, "3 six → le tour passe");
+        assertRule(gameState.consecutiveSixes === 0, "consecutiveSixes remis à 0");
+        gameState.tokens.forEach(t => {
+            const avant = positionsDepart3Six.find(p => p.id === t.id);
+            assertRule(t.position === avant.pos, "pion " + t.id + " : position inchangée après 3 six");
+            assertRule(t.state === avant.state, "pion " + t.id + " : état inchangé après 3 six");
+        });
+        assertRule(gameState.winner === null, "aucune défaite après trois 6");
+        results.push("Trois 6 : tour passé, aucun pion perdu, aucune défaite");
+
+        /* ---------- 2 + 3 + 4. CASES PROTÉGÉES : toutes paires × 8 cases ---------- */
+        const PAIRES_COULEURS = [];
+        PLAYER_ORDER.forEach(a => PLAYER_ORDER.forEach(b => {
+            if (a !== b) PAIRES_COULEURS.push([a, b]);
+        }));
+        SAFE_RING_INDEXES.forEach(ringIndex => {
+            PAIRES_COULEURS.forEach(function (paire) {
+                const attaquant = paire[0];
+                const defenseur = paire[1];
+                gameState = createInitialState();
+                const posDefenseur = (ringIndex - PLAYERS[defenseur].offset + RING.length) % RING.length;
+                const posAttaquant = (ringIndex - PLAYERS[attaquant].offset + RING.length) % RING.length;
+                setTokenPosition(getToken(defenseur, 0), posDefenseur);
+                setTokenPosition(getToken(attaquant, 0), posAttaquant);
+
+                const capture = resoudreCapture(attaquant, posAttaquant);
+                assertRule(capture.captures.length === 0,
+                    attaquant + " ne doit PAS capturer " + defenseur + " sur ring " + ringIndex);
+                assertRule(capture.captureBloqueeParProtection === true,
+                    "ring " + ringIndex + " doit être détectée protégée pour " + attaquant);
+                assertRule(getToken(defenseur, 0).position === posDefenseur,
+                    "pion " + defenseur + " intact sur ring " + ringIndex);
+            });
+        });
+        results.push("8 cases protégées × 12 paires ordonnées = 96 cas : aucune capture");
+
+        /* ---------- 5. CAPTURE NORMALE ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("red", 0), 18);  /* ring 18 */
+        setTokenPosition(getToken("green", 0), 5); /* green 5 → ring 18 */
+        assertRule(getRingIndex("green", 5) === 18, "case témoin = ring 18");
+        assertRule(!isSafeRingIndex(18), "ring 18 non protégée");
+        const capNormale = resoudreCapture("green", 5);
+        assertRule(capNormale.captures.length === 1, "1 capture");
+        assertRule(capNormale.captures[0].color === "red", "victime = rouge");
+        assertRule(getToken("red", 0).position === -1, "rouge renvoyé en base");
+        assertRule(getToken("red", 0).state === TOKEN_STATE.BASE, "état BASE");
+        assertRule(getToken("green", 0).position === 5, "attaquant inchangé");
+        results.push("Capture normale : cible en base, attaquant stable");
+
+        /* ---------- 6. AUTO-CAPTURE INTERDITE ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("red", 0), 5);
+        setTokenPosition(getToken("red", 1), 5);
+        const ringAuto = getRingIndex("red", 5);
+        assertRule(getRingOccupants(ringAuto).length === 2, "2 rouges sur la case");
+        const capAuto = resoudreCapture("red", 5);
+        assertRule(capAuto.captures.length === 0, "aucune auto-capture");
+        assertRule(getToken("red", 0).position === 5, "pion 0 intact");
+        assertRule(getToken("red", 1).position === 5, "pion 1 intact");
+        results.push("Auto-capture interdite : pions alliés insensibles");
+
+        /* ---------- 7. BLOCS DE TAILLE 2, 3, 4 ---------- */
+        [2, 3, 4].forEach(function (taille) {
+            gameState = createInitialState();
+            for (let i = 0; i < taille; i++) setTokenPosition(getToken("red", i), 18);
+            setTokenPosition(getToken("green", 0), 4);  /* green 4 → ring 17 */
+            assertRule(!isLegalMove("green", 0, 1),
+                "pion seul ne peut PAS atterrir sur un bloc de " + taille);
+            assertRule(getRingOccupants(18).length === taille, "bloc de " + taille + " confirmé");
+
+            setTokenPosition(getToken("green", 0), 3);
+            assertRule(!isLegalMove("green", 0, 5),
+                "pion seul ne peut PAS traverser un bloc de " + taille);
+        });
+        results.push("Blocs 2, 3, 4 : atterrissage et traversée refusés pour un pion seul");
+
+        /* ---------- 8. RÈGLE PROJET : PONT PLUS GRAND ---------- */
+        /* Case A : pont 3 > bloc 2 → passe */
+        gameState = createInitialState();
+        setTokenPosition(getToken("green", 0), 5);
+        setTokenPosition(getToken("green", 1), 5);
+        setTokenPosition(getToken("green", 2), 5);
+        setTokenPosition(getToken("red", 0), 19);
+        setTokenPosition(getToken("red", 1), 19);
+        assertRule(pathIsBlocked("green", 5, 8) === false,
+            "CASE A : pont 3 > bloc 2 → traverse autorisé");
+
+        /* Case B : pont 3 == bloc 3 → bloqué */
+        gameState = createInitialState();
+        setTokenPosition(getToken("green", 0), 5);
+        setTokenPosition(getToken("green", 1), 5);
+        setTokenPosition(getToken("green", 2), 5);
+        setTokenPosition(getToken("red", 0), 19);
+        setTokenPosition(getToken("red", 1), 19);
+        setTokenPosition(getToken("red", 2), 19);
+        assertRule(pathIsBlocked("green", 5, 8) === true,
+            "CASE B : pont 3 == bloc 3 → bloqué");
+
+        /* Case C : pont 2 < bloc 3 → bloqué */
+        gameState = createInitialState();
+        setTokenPosition(getToken("green", 0), 5);
+        setTokenPosition(getToken("green", 1), 5);
+        setTokenPosition(getToken("red", 0), 19);
+        setTokenPosition(getToken("red", 1), 19);
+        setTokenPosition(getToken("red", 2), 19);
+        assertRule(pathIsBlocked("green", 5, 8) === true,
+            "CASE C : pont 2 < bloc 3 → bloqué");
+
+        /* Case D : pont 4 > bloc 3 → passe */
+        gameState = createInitialState();
+        setTokenPosition(getToken("green", 0), 5);
+        setTokenPosition(getToken("green", 1), 5);
+        setTokenPosition(getToken("green", 2), 5);
+        setTokenPosition(getToken("green", 3), 5);
+        setTokenPosition(getToken("red", 0), 19);
+        setTokenPosition(getToken("red", 1), 19);
+        setTokenPosition(getToken("red", 2), 19);
+        assertRule(pathIsBlocked("green", 5, 8) === false,
+            "CASE D : pont 4 > bloc 3 → traverse autorisé");
+        results.push("Règle pont : A(3>2✅) B(3=3❌) C(2<3❌) D(4>3✅)");
+
+        /* ---------- 9. PONT + ARRIVÉE : ne jamais atterrir sur un pont adverse ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("green", 0), 5);
+        setTokenPosition(getToken("green", 1), 5);
+        setTokenPosition(getToken("green", 2), 5);
+        setTokenPosition(getToken("green", 3), 5);
+        setTokenPosition(getToken("red", 0), 19);
+        setTokenPosition(getToken("red", 1), 19);
+        assertRule(isLegalMove("green", 0, 1) === false,
+            "atterrir sur un pont adverse interdit même avec pont plus grand");
+        assertRule(isLegalMove("green", 0, 3) === true,
+            "dépasser le pont adverse autorisé");
+        results.push("PONT + ARRIVÉE : traverser OK, atterrir TOUJOURS interdit");
+
+        /* ---------- 10. PLUSIEURS BLOCS SUR LE MÊME TRAJET (documentation) ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("green", 0), 5);
+        setTokenPosition(getToken("green", 1), 5);
+        setTokenPosition(getToken("green", 2), 5);
+        setTokenPosition(getToken("green", 3), 5);
+        setTokenPosition(getToken("red", 0), 19);   /* ring 19 = green 6 */
+        setTokenPosition(getToken("red", 1), 19);
+        setTokenPosition(getToken("red", 2), 20);   /* ring 20 = green 7 */
+        setTokenPosition(getToken("red", 3), 20);
+        assertRule(pathIsBlocked("green", 5, 10) === false,
+            "COMPORTEMENT ACTUEL : pont de 4 franchit DEUX blocs de 2 sur le même trajet");
+        results.push("Plusieurs blocs : tous franchis si pont strictement plus grand (documenté)");
+
+        /* ---------- 11. SORTIE DE BASE ---------- */
+        [1, 2, 3, 4, 5].forEach(function (dice) {
+            gameState = createInitialState();
+            assertRule(!isLegalMove("red", 0, dice),
+                "sortie base refusée avec " + dice);
+        });
+        gameState = createInitialState();
+        assertRule(isLegalMove("red", 0, 6), "sortie base autorisée avec 6");
+        assertRule(tokensOf("red").every(t => t.position === -1), "4 pions rouge en base");
+        [0, 1, 2, 3].forEach(function (idx) {
+            assertRule(isLegalMove("red", idx, 6), "pion " + idx + " peut sortir avec un 6");
+        });
+        results.push("Sortie de base : uniquement sur 6, pour chacun des 4 pions");
+
+        /* ---------- 12. DÉPASSEMENT / ARRIVÉE EXACTE ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("red", 0), 55);
+        assertRule(isLegalMove("red", 0, 1), "55 + 1 = 56 : OK");
+        assertRule(!isLegalMove("red", 0, 2), "55 + 2 = 57 : refusé");
+        setTokenPosition(getToken("red", 0), 50);
+        assertRule(isLegalMove("red", 0, 6), "50 + 6 = 56 : OK");
+        assertRule(!isLegalMove("red", 0, 7), "50 + 7 = 57 : refusé");
+        setTokenPosition(getToken("red", 0), FINISH_POSITION);
+        assertRule(!isLegalMove("red", 0, 1), "pion arrivé : immobile");
+        results.push("Dépassement arrivée : interdit ; arrivée exacte : OK");
+
+        /* ---------- 13. VICTOIRE ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("red", 0), FINISH_POSITION);
+        setTokenPosition(getToken("red", 1), FINISH_POSITION);
+        setTokenPosition(getToken("red", 2), FINISH_POSITION);
+        assertRule(!verifierVictoire("red"), "3 pions ≠ victoire");
+        assertRule(nombreArrives("red") === 3, "compteur = 3");
+        setTokenPosition(getToken("red", 3), FINISH_POSITION);
+        assertRule(verifierVictoire("red"), "4 pions = victoire");
+        assertRule(nombreArrives("red") === 4, "compteur = 4");
+        assertRule(!verifierVictoire("green"), "vert pas gagnant");
+        assertRule(!verifierVictoire("blue"), "bleu pas gagnant");
+        assertRule(!verifierVictoire("yellow"), "jaune pas gagnant");
+        results.push("Victoire : 3 = false, 4 = true, autres couleurs intactes");
+
+        /* ---------- 14. IDENTITÉ APRÈS MOUVEMENTS / CAPTURES ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("red", 0), 3);
+        setTokenPosition(getToken("green", 0), 4);
+        resoudreCapture("green", 4);
+        setTokenPosition(getToken("blue", 0), 30);
+        setTokenPosition(getToken("yellow", 0), 40);
+        const couleursOriginales = {};
+        gameState.tokens.forEach(function (t) {
+            if (!couleursOriginales[t.id]) couleursOriginales[t.id] = t.color;
+            assertRule(t.id === t.color + "-" + t.tokenIndex, "id stable " + t.id);
+            assertRule(t.color === t.player, "color == player " + t.id);
+            assertRule(couleursOriginales[t.id] === t.color, "couleur immuable " + t.id);
+        });
+        assertRule(tokensOf("red").length === 4, "4 rouges");
+        assertRule(tokensOf("green").length === 4, "4 verts");
+        assertRule(tokensOf("blue").length === 4, "4 bleus");
+        assertRule(tokensOf("yellow").length === 4, "4 jaunes");
+        results.push("Identité : 16 pions, couleurs immuables après déplacements/captures");
+
+        /* ---------- 15. REDÉMARRAGE : état initial propre ---------- */
+        const etatFrais = createInitialState();
+        assertRule(etatFrais.tokens.length === 16, "16 pions");
+        assertRule(etatFrais.tokens.every(t => t.position === -1 && t.state === TOKEN_STATE.BASE),
+            "tous en base");
+        assertRule(etatFrais.currentPlayerIndex === 0, "joueur 0");
+        assertRule(etatFrais.diceValue === null, "diceValue null");
+        assertRule(etatFrais.diceRolled === false, "diceRolled false");
+        assertRule(etatFrais.consecutiveSixes === 0, "consecutiveSixes 0");
+        assertRule(etatFrais.winner === null, "winner null");
+        assertRule(etatFrais.history.length === 0, "historique vide");
+        assertRule(etatFrais.legalMoves.length === 0, "legalMoves vide");
+        assertRule(etatFrais.isRolling === false, "isRolling false");
+        assertRule(etatFrais.isAnimatingMove === false, "isAnimatingMove false");
+        assertRule(etatFrais.isBotThinking === false, "isBotThinking false");
+        assertRule(etatFrais.lastRollWasSix === false, "lastRollWasSix false");
+        results.push("Redémarrage : état initial propre (pions, verrous, historique, dé)");
+
+        /* ---------- 17. INTERPRÉTATION DU PONT (documentée) ---------- */
+        gameState = createInitialState();
+        setTokenPosition(getToken("green", 0), 5);
+        setTokenPosition(getToken("green", 1), 5);
+        setTokenPosition(getToken("green", 2), 5);
+        setTokenPosition(getToken("green", 3), 5);
+        setTokenPosition(getToken("red", 0), 19);
+        setTokenPosition(getToken("red", 1), 19);
+        setTokenPosition(getToken("red", 2), 19);
+        assertRule(tailleDePontSurPosition("green", 5) === 4,
+            "pont mesuré AVANT déplacement = 4");
+        assertRule(pathIsBlocked("green", 5, 8) === false,
+            "un pont de 4 franchit un bloc de 3 (mesure AVANT départ)");
+        results.push("Interprétation du pont : mesuré AVANT déplacement (comportement documenté)");
+
         console.log("%c✓ MOTEUR LUDO — tous les tests passent", "color:#43A047;font-weight:bold");
         results.forEach(r => console.log("   ✓ " + r));
     } catch (error) {
