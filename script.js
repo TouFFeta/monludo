@@ -10,39 +10,131 @@
 
 
 /* ============================================================
-   0. RÈGLES ACTIVÉES
+    CONSTANTES PARTAGÉES
+    ------------------------------------------------------------
+    shared/constants.js est chargé AVANT ce fichier (voir index.html).
+    Il expose window.LudoConstants. Toutes les constantes pures
+    du jeu proviennent de là — source unique de vérité.
+    ============================================================ */
+
+const {
+     TOKEN_STATE,
+     SEAT_TYPE,
+     BOT_LEVELS,
+     RULES,
+     BOARD_SIZE,
+     RING,
+     STAR_RING_INDEXES,
+     HOME_PATHS,
+     LAST_COMMON_POSITION,
+     FIRST_HOME_POSITION,
+     FINISH_POSITION,
+     PLAYER_ORDER,
+     PLAYERS,
+     SAFE_RING_INDEXES,
+     DICE_PIP_PATTERNS,
+     BOT_CONFIG,
+     GAME_MODES
+} = window.LudoConstants;
+
+/* ============================================================
+   ÉTAT DU JEU PARTAGÉ
+   ------------------------------------------------------------
+   shared/state.js est chargé APRÈS shared/constants.js
+   et AVANT script.js (voir index.html).
+   Il expose window.LudoState.
    ============================================================ */
 
-const RULES = {
-    /* --- VÉRIFIÉES sur sources officielles Ludo King --- */
-    SORTIE_UNIQUEMENT_AVEC_6:        true,
-    TOUR_SUPPLEMENTAIRE_SUR_6:       true,
-    TOUR_SUPPLEMENTAIRE_SUR_CAPTURE: true,
-    BLOCAGE_AVEC_2_PIONS:            true,
-    ARRIVEE_NOMBRE_EXACT:            true,
+const {
+    stateFromPosition,
+    setTokenPosition,
+    createTokens,
+    createInitialState
+} = window.LudoState;
 
-    /* Trois 6 d'affilée : le TOUR passe au joueur suivant.
-       Cela ne fait JAMAIS perdre la partie, ne retire aucun pion
-       et n'annule aucun coup déjà joué. Seul le 3e lancer est perdu.
-       Mets false si tu veux autoriser les 6 à l'infini. */
-    TROIS_6_TOUR_PERDU:              true,
+/* ============================================================
+   RÈGLES PARTAGÉES
+   ------------------------------------------------------------
+   shared/rules.js est chargé APRÈS constants.js et state.js.
+   Les fonctions pures gardent leur signature.
+   Les fonctions qui lisent l'état prennent `state` en premier
+   paramètre dans rules.js ; ici, de petits wrappers réinjectent
+   gameState pour conserver les appels existants inchangés.
+   ============================================================ */
 
-    /* --- RÈGLES DE TON PROJET (choix assumés) --- */
-    /* Les 4 cases de départ colorées sont protégées, comme les 4 étoiles.
-       => 8 cases sûres au total. */
-    CASES_DEPART_SONT_SURES:         true,
-    /* Amener un pion à l'arrivée donne un tour supplémentaire. */
-    TOUR_SUPPLEMENTAIRE_SUR_ARRIVEE: true,
-    /* Un 6 sans aucun coup possible conserve le relancer. */
-    GARDER_LA_MAIN_SI_6_SANS_COUP:   true,
-    /* RÈGLE PROJET — pont plus grand peut traverser un pont adverse.
-       Un pion d'un pont STRICTEMENT plus grand qu'un pont adverse devant lui
-       peut TRAVERSER ce pont adverse (sans s'y arrêter), si le dé le permet.
-       Seul le pion choisi bouge : les autres pions du pont restent sur leur case.
-       Atterrir SUR un pont adverse reste TOUJOURS interdit, quelle que soit la taille.
-       Mettre false pour revenir au Ludo standard (tout pont adverse bloque). */
-    PONT_PLUS_GRAND_TRAVERSE_BLOCAGE: true
-};
+const Rules = window.LudoRules;
+
+/* --- Fonctions pures : signatures identiques à avant --- */
+const {
+    coordinateKey,
+    isCommonPosition,
+    getRingIndex,
+    getLogicalCoordinate,
+    isSafeRingIndex,
+    getTargetPosition
+} = Rules;
+
+/* --- Wrappers de compatibilité (délèguent à rules.js) --- */
+function tokensOf(color)                { return Rules.tokensOf(gameState, color); }
+function getToken(color, tokenIndex)    { return Rules.getToken(gameState, color, tokenIndex); }
+function getRingOccupants(ringIndex)    { return Rules.getRingOccupants(gameState, ringIndex); }
+function getBlockAtRingIndex(ringIndex) { return Rules.getBlockAtRingIndex(gameState, ringIndex); }
+function tailleDePontSurPosition(c, p)  { return Rules.tailleDePontSurPosition(gameState, c, p); }
+function pathIsBlocked(c, from, to)     { return Rules.pathIsBlocked(gameState, c, from, to); }
+function analyserCaseArrivee(c, t)      { return Rules.analyserCaseArrivee(gameState, c, t); }
+function isLegalMove(c, idx, dv)        { return Rules.isLegalMove(gameState, c, idx, dv); }
+function getLegalMoves(c, dv)           { return Rules.getLegalMoves(gameState, c, dv); }
+function verifierVictoire(color)        { return Rules.verifierVictoire(gameState, color); }
+function nombreArrives(c)               { return Rules.nombreArrives(gameState, c); }
+
+/* ============================================================
+   INTELLIGENCE DES BOTS (module partagé)
+   ------------------------------------------------------------
+   shared/bot.js contient l'analyse et la décision pures.
+   Ci-dessous, de petits wrappers réinjectent `gameState` pour
+   que les appelants existants (executeBotTurn, tests) restent
+   inchangés.
+   ============================================================ */
+
+const Bot = window.LudoBot;
+
+function alliesSurRing(color, ringIndex, saufTokenIndex) {
+    return Bot.alliesSurRing(gameState, color, ringIndex, saufTokenIndex);
+}
+function adversairesDerriere(color, ringIndex, portee) {
+    return Bot.adversairesDerriere(gameState, color, ringIndex, portee);
+}
+function ciblesAuProchainTour(color, position) {
+    return Bot.ciblesAuProchainTour(gameState, color, position);
+}
+function risqueDeCapture(color, position, protegeParBlocage) {
+    return Bot.risqueDeCapture(gameState, color, position, protegeParBlocage);
+}
+function analyserCoupBot(color, move) {
+    return Bot.analyserCoupBot(gameState, color, move);
+}
+function scoreMove(color, move, level) {
+    return Bot.scoreMove(gameState, color, move, level);
+}
+function chooseBotMove(color, diceValue, level) {
+    return Bot.chooseBotMove(gameState, color, diceValue, level);
+}
+
+/* ============================================================
+   MOTEUR DE COUP (module partagé)
+   ------------------------------------------------------------
+   shared/move.js est chargé APRÈS bot.js (voir index.html).
+   Il expose appliquerCoup(), utilisée par deplacerPion().
+   ============================================================ */
+
+const { appliquerCoup } = window.LudoMove;
+
+
+/* ============================================================
+    0. RÈGLES ACTIVÉES
+    ============================================================ */
+
+/* RULES est définie dans shared/constants.js (voir bloc d'import en haut). */
 
 
 /* ============================================================
@@ -102,12 +194,11 @@ const backToHomeFromWin = document.getElementById("backToHomeFromWin");
 
 
 /* ============================================================
-   2. GÉOMÉTRIE DU PLATEAU (source de vérité unique)
-   ------------------------------------------------------------
-   Grille 15 × 15, coordonnées [ligne, colonne] de 0 à 14.
+   2. DURÉES D'ANIMATION
    ============================================================ */
 
-const BOARD_SIZE = 15;
+/* Géométrie, couleurs et règles : voir shared/constants.js.
+    Seules les durées d'animation restent ici (client uniquement). */
 
 /* Durées d'animation (ms) */
 const DICE_ANIMATION_MS = 850;   /* roulement du dé          */
@@ -115,80 +206,6 @@ const MOVE_STEP_MS      = 110;   /* glissement d'une case    */
 const BASE_EXIT_MS      = 340;   /* sortie de base           */
 const CAPTURE_RETURN_MS = 430;   /* retour du pion capturé   */
 const ARRIVAL_MS        = 380;   /* petit saut à l'arrivée   */
-
-/* Parcours commun : 52 cases, sens des aiguilles d'une montre.
-   L'index 0 est la case de départ ROUGE. */
-const RING = [
-    [6, 1], [6, 2], [6, 3], [6, 4], [6, 5],                 /* 0  → 4  */
-    [5, 6], [4, 6], [3, 6], [2, 6], [1, 6], [0, 6],         /* 5  → 10 */
-    [0, 7],                                                 /* 11      */
-    [0, 8], [1, 8], [2, 8], [3, 8], [4, 8], [5, 8],         /* 12 → 17 */
-    [6, 9], [6, 10], [6, 11], [6, 12], [6, 13], [6, 14],    /* 18 → 23 */
-    [7, 14],                                                /* 24      */
-    [8, 14], [8, 13], [8, 12], [8, 11], [8, 10], [8, 9],    /* 25 → 30 */
-    [9, 8], [10, 8], [11, 8], [12, 8], [13, 8], [14, 8],    /* 31 → 36 */
-    [14, 7],                                                /* 37      */
-    [14, 6], [13, 6], [12, 6], [11, 6], [10, 6], [9, 6],    /* 38 → 43 */
-    [8, 5], [8, 4], [8, 3], [8, 2], [8, 1], [8, 0],         /* 44 → 49 */
-    [7, 0],                                                 /* 50      */
-    [6, 0]                                                  /* 51      */
-];
-
-/* Les 4 cases étoilées. */
-const STAR_RING_INDEXES = [8, 21, 34, 47];
-
-/* Couloirs d'arrivée : 5 cases par couleur, de l'entrée vers le centre. */
-const HOME_PATHS = {
-    red:    [[7, 1],  [7, 2],  [7, 3],  [7, 4],  [7, 5]],
-    green:  [[1, 7],  [2, 7],  [3, 7],  [4, 7],  [5, 7]],
-    blue:   [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9]],
-    yellow: [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]]
-};
-
-/* Positions logiques d'un pion :
-   -1       = dans sa base
-   0 → 50   = parcours commun (51 cases parcourues)
-   51 → 55  = couloir d'arrivée (5 cases)
-   56       = ARRIVÉE (centre) */
-const LAST_COMMON_POSITION = 50;
-const FIRST_HOME_POSITION  = 51;
-const FINISH_POSITION      = 56;
-
-const PLAYER_ORDER = ["red", "green", "blue", "yellow"];
-
-const PLAYERS = {
-    red: {
-        name: "Joueur rouge", shortName: "Rouge", letter: "R",
-        offset: 0,  baseRow: 0, baseCol: 0, entryCell: [7, 0],  arrow: "right"
-    },
-    green: {
-        name: "Joueur vert",  shortName: "Vert",  letter: "V",
-        offset: 13, baseRow: 0, baseCol: 9, entryCell: [0, 7],  arrow: "down"
-    },
-    blue: {
-        name: "Joueur bleu",  shortName: "Bleu",  letter: "B",
-        offset: 26, baseRow: 9, baseCol: 9, entryCell: [7, 14], arrow: "left"
-    },
-    yellow: {
-        name: "Joueur jaune", shortName: "Jaune", letter: "J",
-        offset: 39, baseRow: 9, baseCol: 0, entryCell: [14, 7], arrow: "up"
-    }
-};
-
-/* Index du parcours commun considérés comme cases sûres.
-   4 étoiles + (optionnel) les 4 cases de départ colorées. */
-const SAFE_RING_INDEXES = (function () {
-    const set = new Set(STAR_RING_INDEXES);
-    if (RULES.CASES_DEPART_SONT_SURES) {
-        PLAYER_ORDER.forEach(color => set.add(PLAYERS[color].offset));
-    }
-    return set;
-})();
-
-const DICE_PIP_PATTERNS = {
-    1: [5], 2: [1, 9], 3: [1, 5, 9],
-    4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9]
-};
 
 
 /* ============================================================
@@ -204,200 +221,30 @@ let partieId = 0;
 
 function partieActive(id) { return id === partieId; }
 
-const TOKEN_STATE = {
-    BASE: "BASE",
-    TRACK: "TRACK",
-    HOME_PATH: "HOME_PATH",
-    FINISHED: "FINISHED"
-};
-
-function stateFromPosition(position) {
-    if (position === -1) return TOKEN_STATE.BASE;
-    if (position === FINISH_POSITION) return TOKEN_STATE.FINISHED;
-    if (position >= FIRST_HOME_POSITION) return TOKEN_STATE.HOME_PATH;
-    return TOKEN_STATE.TRACK;
-}
-
-function createTokens() {
-    const tokens = [];
-    PLAYER_ORDER.forEach(color => {
-        for (let i = 0; i < 4; i++) {
-            tokens.push({
-                id: color + "-" + i,
-                color: color,
-                player: color,
-                tokenIndex: i,
-                position: -1,
-                state: TOKEN_STATE.BASE
-            });
-        }
-    });
-    return tokens;
-}
-
-function createInitialState() {
-    return {
-        currentPlayerIndex: 0,
-        diceValue: null,
-        diceRolled: false,
-        isBotThinking: false,
-        legalMoves: [],
-        winner: null,
-        isRolling: false,
-        isAnimatingMove: false,
-        consecutiveSixes: 0,
-        lastRollWasSix: false,
-        history: [],
-        tokens: createTokens()
-    };
-}
+/* stateFromPosition, createTokens, createInitialState
+    → voir shared/state.js */
 
 function currentPlayerColor() { return PLAYER_ORDER[gameState.currentPlayerIndex]; }
 
-function tokensOf(color) { return gameState.tokens.filter(t => t.color === color); }
+/* tokensOf, getToken : voir shared/rules.js (via wrappers locaux en haut). */
 
-function getToken(color, tokenIndex) {
-    return gameState.tokens.find(t => t.color === color && t.tokenIndex === tokenIndex);
-}
-
-/* Toute écriture de position passe par ici :
-   position et state ne peuvent jamais être désynchronisés. */
-function setTokenPosition(token, position) {
-    token.position = position;
-    token.state = stateFromPosition(position);
-}
+/* setTokenPosition : voir shared/state.js (primitive de mutation). */
 
 
 /* ============================================================
    4. COORDONNÉES
    ============================================================ */
 
-function coordinateKey(row, col) { return row + "-" + col; }
-
-function isCommonPosition(position) {
-    return position >= 0 && position <= LAST_COMMON_POSITION;
-}
-
-function getRingIndex(color, position) {
-    if (!isCommonPosition(position)) return null;
-    return (PLAYERS[color].offset + position) % RING.length;
-}
-
-function getLogicalCoordinate(color, position) {
-    if (isCommonPosition(position)) return RING[getRingIndex(color, position)];
-    if (position >= FIRST_HOME_POSITION && position < FINISH_POSITION) {
-        return HOME_PATHS[color][position - FIRST_HOME_POSITION];
-    }
-    if (position === FINISH_POSITION) return [7, 7];
-    return null;
-}
-
-function isSafeRingIndex(ringIndex) { return SAFE_RING_INDEXES.has(ringIndex); }
+/* Helpers géométriques : voir shared/rules.js */
 
 
 /* ============================================================
    5. RÈGLES
    ============================================================ */
 
-function getRingOccupants(ringIndex) {
-    return gameState.tokens.filter(t =>
-        isCommonPosition(t.position) && getRingIndex(t.color, t.position) === ringIndex
-    );
-}
-
-/* Blocage : 2 pions ou plus de la MÊME couleur sur la même case. */
-function getBlockAtRingIndex(ringIndex) {
-    if (!RULES.BLOCAGE_AVEC_2_PIONS) return null;
-    const counts = {};
-    getRingOccupants(ringIndex).forEach(t => {
-        counts[t.color] = (counts[t.color] || 0) + 1;
-    });
-    for (const color of PLAYER_ORDER) {
-        if ((counts[color] || 0) >= 2) return { color: color, count: counts[color] };
-    }
-    return null;
-}
-
-/* Nombre de pions d'une couleur sur la case où se trouve ce pion.
-   Sert à mesurer la taille du pont AVANT le déplacement. */
-function tailleDePontSurPosition(color, position) {
-    if (!isCommonPosition(position)) return 0;
-    return getRingOccupants(getRingIndex(color, position))
-        .filter(t => t.color === color).length;
-}
-
-function pathIsBlocked(color, fromPosition, toPosition) {
-    if (!RULES.BLOCAGE_AVEC_2_PIONS) return false;
-    const start = Math.max(fromPosition + 1, 0);
-    const end   = Math.min(toPosition, LAST_COMMON_POSITION);
-
-    /* Taille du pont au moment du départ (le pion choisi est encore dedans). */
-    const maTaille = RULES.PONT_PLUS_GRAND_TRAVERSE_BLOCAGE
-        ? tailleDePontSurPosition(color, fromPosition)
-        : 0;
-
-    for (let p = start; p <= end; p++) {
-        const ringIndex = getRingIndex(color, p);
-        const block = getBlockAtRingIndex(ringIndex);
-        if (!block || block.color === color) continue;
-
-        /* 1) Atterrir SUR un pont adverse : TOUJOURS interdit. */
-        if (p === toPosition) return true;
-
-        /* 2) Ludo standard : tout pont adverse bloque le passage. */
-        if (!RULES.PONT_PLUS_GRAND_TRAVERSE_BLOCAGE) return true;
-
-        /* 3) Règle projet : traversée autorisée SEULEMENT si notre pont
-              est strictement plus grand que le pont adverse. */
-        if (maTaille <= block.count) return true;
-        /* sinon : on traverse (un seul pion), on continue d'examiner la suite. */
-    }
-    return false;
-}
-
-function getTargetPosition(position, diceValue) {
-    if (position === -1) return diceValue === 6 ? 0 : null;
-    if (position === FINISH_POSITION) return null;
-    const target = position + diceValue;
-    if (target > FINISH_POSITION) return null;   /* nombre exact obligatoire */
-    return target;
-}
-
-function isLegalMove(color, tokenIndex, diceValue) {
-    if (!Number.isInteger(diceValue)) return false;
-    const token = getToken(color, tokenIndex);
-    if (!token) return false;
-
-    const target = getTargetPosition(token.position, diceValue);
-    if (target === null) return false;
-
-    /* Sortie de base : uniquement avec un 6. */
-    if (token.position === -1) {
-        if (diceValue !== 6) return false;
-        const block = getBlockAtRingIndex(PLAYERS[color].offset);
-        if (block && block.color !== color) return false;   /* départ bloqué */
-        return true;
-    }
-
-    /* Blocage adverse sur le trajet ou sur la case d'arrivée. */
-    if (pathIsBlocked(color, token.position, target)) return false;
-
-    return true;
-}
-
-function getLegalMoves(color, diceValue) {
-    const moves = [];
-    tokensOf(color).forEach(token => {
-        if (isLegalMove(color, token.tokenIndex, diceValue)) {
-            moves.push({
-                tokenIndex: token.tokenIndex,
-                from: token.position,
-                to: getTargetPosition(token.position, diceValue)
-            });
-        }
-    });
-    return moves;
-}
+/* getRingOccupants, getBlockAtRingIndex, pathIsBlocked,
+   getTargetPosition, isLegalMove, getLegalMoves :
+   voir shared/rules.js (via wrappers locaux en haut du fichier). */
 
 
 /* ============================================================
@@ -408,35 +255,20 @@ function getLegalMoves(color, diceValue) {
    retour en base, aucune animation de capture.
    ============================================================ */
 
-/* Analyse logique de la case d'arrivée. Ne modifie rien. */
-function analyserCaseArrivee(color, targetPosition) {
-    if (!isCommonPosition(targetPosition)) {
-        return { ringIndex: null, estProtegee: false, adversaires: [] };
-    }
-    const ringIndex = getRingIndex(color, targetPosition);
-    return {
-        ringIndex: ringIndex,
-        estProtegee: isSafeRingIndex(ringIndex),
-        adversaires: getRingOccupants(ringIndex).filter(t => t.color !== color)
-    };
-}
-
 /* Exécute la capture UNIQUEMENT si la case n'est pas protégée.
    Renvoie { captures: [...], captureBloqueeParProtection: bool }. */
 function resoudreCapture(color, targetPosition) {
-    const analyse = analyserCaseArrivee(color, targetPosition);
+    const analyse = analyserCaseArrivee(color, targetPosition);   // lecture pure
 
     if (analyse.adversaires.length === 0) {
-        return { captures: [], captureBloqueeParProtection: false, analyse: analyse };
+        return { captures: [], captureBloqueeParProtection: false, analyse };
     }
-
-    /* RÈGLE CRITIQUE : case protégée → on ne capture pas. */
     if (analyse.estProtegee) {
-        return { captures: [], captureBloqueeParProtection: true, analyse: analyse };
+        return { captures: [], captureBloqueeParProtection: true, analyse };
     }
 
-    analyse.adversaires.forEach(victim => setTokenPosition(victim, -1));
-    return { captures: analyse.adversaires, captureBloqueeParProtection: false, analyse: analyse };
+    analyse.adversaires.forEach(victim => setTokenPosition(victim, -1));  // MUTATION
+    return { captures: analyse.adversaires, captureBloqueeParProtection: false, analyse };
 }
 
 
@@ -444,14 +276,7 @@ function resoudreCapture(color, targetPosition) {
    7. VICTOIRE
    ============================================================ */
 
-function verifierVictoire(color) {
-    return tokensOf(color).every(t => t.position === FINISH_POSITION);
-}
-
-function nombreArrives(color) {
-    return tokensOf(color).filter(t => t.position === FINISH_POSITION).length;
-}
-
+/* verifierVictoire, nombreArrives : voir shared/rules.js. */
 
 /* ============================================================
    8. NOTIFICATIONS ET FEEDBACK
@@ -1005,6 +830,7 @@ async function animateTokenMovement(token, fromPosition, toPosition, idPartie) {
         playFlip(before, BASE_EXIT_MS);
         animateTokenBody(token.color, token.tokenIndex, "exiting-base", BASE_EXIT_MS);
         await sleep(BASE_EXIT_MS);
+        if (!partieActive(idPartie)) return;
         animateTokenBody(token.color, token.tokenIndex, "landing", 260);
         await sleep(160);
         return;
@@ -1028,7 +854,7 @@ async function deplacerPion(color, tokenIndex, targetPosition) {
     const token = getToken(color, tokenIndex);
     if (!token) return;
 
-    /* Dernière validation avant toute animation. */
+    /* Dernière validation avant toute animation (garde UI). */
     if (!isLegalMove(color, tokenIndex, gameState.diceValue)) return;
 
     /* Toute la suite appartient à CETTE partie et à aucune autre. */
@@ -1043,7 +869,7 @@ async function deplacerPion(color, tokenIndex, targetPosition) {
     updateActionPanel();
     updateLegalMoveHighlights();
 
-    /* --- 4. Le pion se déplace --- */
+    /* --- Animation du déplacement (mute token.position case par case) --- */
     await animateTokenMovement(token, fromPosition, targetPosition, idPartie);
     if (!partieActive(idPartie)) return;
 
@@ -1056,10 +882,29 @@ async function deplacerPion(color, tokenIndex, targetPosition) {
         addHistoryEntry(color, "<strong>" + nomCourt(color) + "</strong> avance de " + diceValue);
     }
 
-    /* --- 5. Capture éventuelle (case protégée vérifiée AVANT) --- */
-    const resultat = resoudreCapture(color, targetPosition);
+    /* --- Application logique du coup (source de vérité unique) ---
+       L'animation a déjà placé le token à targetPosition. On le
+       repositionne temporairement à fromPosition (sans render, donc
+       sans impact visuel) pour qu'appliquerCoup() valide et rejoue
+       la mutation complète : déplacement, captures, arrivée, victoire. */
+    setTokenPosition(token, fromPosition);
 
-    if (resultat.captureBloqueeParProtection) {
+    const result = appliquerCoup(
+        gameState, color, tokenIndex, targetPosition, diceValue, rolledSix
+    );
+
+    if (!result.ok) {
+        /* Défensif : ne devrait jamais arriver — on a pré-validé. */
+        console.error("LUDO — appliquerCoup a refusé un coup pré-validé :", result);
+        gameState.isAnimatingMove = false;
+        gameState.diceRolled = false;
+        gameState.diceValue  = null;
+        renderTokens();
+        return;
+    }
+
+    /* --- 5. Capture : retour visuel des victimes --- */
+    if (result.captureBlocked) {
         addHistoryEntry(color,
             "<strong>" + nomCourt(color) + "</strong> tente une capture sur case protégée");
         showToast("Case protégée : capture impossible.");
@@ -1068,25 +913,23 @@ async function deplacerPion(color, tokenIndex, targetPosition) {
         if (!partieActive(idPartie)) return;
     }
 
-    if (resultat.captures.length > 0) {
-        /* Le pion attaquant frappe, les pions capturés repartent vers leur base. */
+    if (result.captures.length > 0) {
         animateTokenBody(color, tokenIndex, "hit", 300);
         const before = captureTokenRects();
         renderTokens();
         playFlip(before, CAPTURE_RETURN_MS);
-        resultat.captures.forEach(victim => {
+        result.captures.forEach(victim => {
             animateTokenBody(victim.color, victim.tokenIndex, "captured", CAPTURE_RETURN_MS);
             addHistoryEntry(color, "<strong>" + nomCourt(color) + "</strong> capture un pion "
                 + PLAYERS[victim.color].shortName.toLowerCase());
         });
-        showToast(nomComplet(color) + " capture " + resultat.captures.length + " pion(s) !");
+        showToast(nomComplet(color) + " capture " + result.captures.length + " pion(s) !");
         await sleep(CAPTURE_RETURN_MS);
         if (!partieActive(idPartie)) return;
     }
 
     /* --- 6. Arrivée du pion --- */
-    const vientDArriver = (targetPosition === FINISH_POSITION);
-    if (vientDArriver) {
+    if (result.arrived) {
         animateTokenBody(color, tokenIndex, "arrived", ARRIVAL_MS);
         await sleep(ARRIVAL_MS);
         if (!partieActive(idPartie)) return;
@@ -1100,16 +943,16 @@ async function deplacerPion(color, tokenIndex, targetPosition) {
     renderTokens();
 
     /* --- Victoire --- */
-    if (verifierVictoire(color)) {
+    if (result.victory) {
         terminerPartie(color);
         return;
     }
 
     /* --- 7. Bonus de tour, dans l'ordre --- */
     const raisons = [];
-    if (RULES.TOUR_SUPPLEMENTAIRE_SUR_6 && rolledSix) raisons.push("6");
-    if (RULES.TOUR_SUPPLEMENTAIRE_SUR_CAPTURE && resultat.captures.length > 0) raisons.push("capture");
-    if (RULES.TOUR_SUPPLEMENTAIRE_SUR_ARRIVEE && vientDArriver) raisons.push("arrivée");
+    if (result.reasons.six)     raisons.push("6");
+    if (result.reasons.capture) raisons.push("capture");
+    if (result.reasons.arrival) raisons.push("arrivée");
 
     /* --- 8. Tour suivant --- */
     if (raisons.length > 0) {
@@ -1466,39 +1309,7 @@ if (helpButton)     helpButton.addEventListener("click", () => comingSoon("L'aid
    un bot. Changer qui joue quelle couleur = changer cette map.
    ------------------------------------------------------------ */
 
-/* Types de joueur.
-   ONLINE est réservé pour le futur multijoueur : la valeur existe déjà
-   pour que rien n'ait à être réécrit, mais AUCUN réseau n'est codé ici. */
-const SEAT_TYPE = { HUMAN: "human", BOT: "bot", ONLINE: "online" };
-
-const BOT_LEVELS = { EASY: "easy", NORMAL: "normal", HARD: "hard" };
-
-const GAME_MODES = {
-    "solo": {
-        id: "solo",
-        label: "Solo — 1 joueur contre 3 bots",
-        ranked: false,
-        seats: { red: "human", green: "bot", blue: "bot", yellow: "bot" }
-    },
-    "four-players": {
-        id: "four-players",
-        label: "Partie locale à quatre joueurs",
-        ranked: false,
-        seats: { red: SEAT_TYPE.HUMAN, green: SEAT_TYPE.HUMAN, blue: SEAT_TYPE.HUMAN, yellow: SEAT_TYPE.HUMAN }
-    },
-    "1v1": {
-        id: "1v1",
-        label: "1v1 — 2 joueurs + 2 bots",
-        ranked: false,
-        seats: { red: SEAT_TYPE.HUMAN, green: SEAT_TYPE.BOT, blue: SEAT_TYPE.HUMAN, yellow: SEAT_TYPE.BOT }
-    },
-    "1v1-ranked": {
-        id: "1v1-ranked",
-        label: "1v1 Classé — 2 joueurs + 2 bots",
-        ranked: true,
-        seats: { red: SEAT_TYPE.HUMAN, green: SEAT_TYPE.BOT, blue: SEAT_TYPE.HUMAN, yellow: SEAT_TYPE.BOT }
-    }
-};
+/* SEAT_TYPE, BOT_LEVELS, GAME_MODES : voir shared/constants.js */
 
 /* Configuration du match en cours. Une seule source de vérité. */
 const MATCH_CONFIG = {
@@ -1677,44 +1488,7 @@ function enregistrerResultatClasse(winnerColor) {
    seuilCritique : au-dessus, le bot ne se trompe jamais
    ------------------------------------------------------------ */
 
-const BOT_CONFIG = {
-    easy: {
-        reflexionMin: 700, reflexionMax: 1200,
-        tolerance: 28, jitter: 7, mistakeChance: 0.16, seuilCritique: 95,
-        poids: {
-            arrivee: 120, couloir: 14, capture: 55, captureAvancee: 0.15,
-            sortieBase: 40, sortieUrgente: 22,
-            progression: 0.10, avance: 1.2,
-            caseSure: 0, creerBlocage: 0, garderBlocage: 0,
-            danger: 0, fuite: 0, pression: 0,
-            opportunite: 0, quitteCaseSure: 0
-        }
-    },
-    normal: {
-        reflexionMin: 750, reflexionMax: 1350,
-        tolerance: 12, jitter: 4, mistakeChance: 0.05, seuilCritique: 90,
-        poids: {
-            arrivee: 130, couloir: 22, capture: 72, captureAvancee: 0.35,
-            sortieBase: 44, sortieUrgente: 30,
-            progression: 0.16, avance: 1.6,
-            caseSure: 16, creerBlocage: 18, garderBlocage: 12,
-            danger: 34, fuite: 26, pression: 3,
-            opportunite: 5, quitteCaseSure: 8
-        }
-    },
-    hard: {
-        reflexionMin: 800, reflexionMax: 1500,
-        tolerance: 5, jitter: 2, mistakeChance: 0, seuilCritique: 0,
-        poids: {
-            arrivee: 145, couloir: 30, capture: 85, captureAvancee: 0.55,
-            sortieBase: 46, sortieUrgente: 38,
-            progression: 0.22, avance: 1.8,
-            caseSure: 22, creerBlocage: 28, garderBlocage: 20,
-            danger: 46, fuite: 34, pression: 5,
-            opportunite: 9, quitteCaseSure: 12
-        }
-    }
-};
+/* BOT_CONFIG : voir shared/constants.js */
 
 /* Délai avant/pendant la réflexion, légèrement variable. */
 const BOT_DELAI_AVANT_LANCER = [380, 680];
@@ -1729,184 +1503,22 @@ function delaiAleatoire(min, max) {
    B4. LECTURE DE LA POSITION (aucune écriture)
    ------------------------------------------------------------ */
 
-/* Alliés déjà présents sur une case du parcours commun. */
-function alliesSurRing(color, ringIndex, saufTokenIndex) {
-    return getRingOccupants(ringIndex).filter(t =>
-        t.color === color && t.tokenIndex !== saufTokenIndex
-    ).length;
-}
-
-/* Adversaires situés juste derrière une case (1 à 12 cases).
-   Sert à mesurer l'intérêt d'y poser un blocage. */
-function adversairesDerriere(color, ringIndex, portee) {
-    let total = 0;
-    gameState.tokens.forEach(t => {
-        if (t.color === color) return;
-        if (!isCommonPosition(t.position)) return;
-        const distance = (ringIndex - getRingIndex(t.color, t.position) + RING.length) % RING.length;
-        if (distance >= 1 && distance <= portee) total += 1;
-    });
-    return total;
-}
-
-/* Adversaires capturables depuis une case au prochain tour (1 à 6 cases devant,
-   hors cases protégées). Ne consulte aucun dé futur : uniquement des positions. */
-function ciblesAuProchainTour(color, position) {
-    if (!isCommonPosition(position)) return 0;
-    let cibles = 0;
-    for (let d = 1; d <= 6; d++) {
-        const suivante = position + d;
-        if (suivante > LAST_COMMON_POSITION) break;
-        const ring = getRingIndex(color, suivante);
-        if (isSafeRingIndex(ring)) continue;
-        if (pathIsBlocked(color, position, suivante)) break;
-        if (getRingOccupants(ring).some(t => t.color !== color)) cibles += 1;
-    }
-    return cibles;
-}
-
-/* Risque de se faire capturer sur une case donnée.
-   On ne regarde QUE ce qu'un humain voit : les pions déjà posés.
-   Aucune valeur de dé future n'est consultée. */
-function risqueDeCapture(color, position, protegeParBlocage) {
-    if (!isCommonPosition(position)) return 0;
-
-    const ringIndex = getRingIndex(color, position);
-    if (isSafeRingIndex(ringIndex)) return 0;
-    if (protegeParBlocage) return 0;
-
-    let menaces = 0;
-    gameState.tokens.forEach(t => {
-        if (t.color === color) return;
-        if (!isCommonPosition(t.position)) return;
-
-        const distance = (ringIndex - getRingIndex(t.color, t.position) + RING.length) % RING.length;
-        if (distance < 1 || distance > 6) return;
-
-        /* L'adversaire doit pouvoir réellement arriver là :
-           mêmes contrôles que le moteur. */
-        const cible = t.position + distance;
-        if (cible > LAST_COMMON_POSITION) return;
-        if (pathIsBlocked(t.color, t.position, cible)) return;
-
-        menaces += 1;
-    });
-
-    /* Chaque menace vaut une chance sur six. */
-    return Math.min(menaces / 6, 1);
-}
+/* alliesSurRing, adversairesDerriere, ciblesAuProchainTour,
+   risqueDeCapture : voir shared/bot.js (via wrappers en haut). */
 
 
 /* ------------------------------------------------------------
    B5. ANALYSE D'UN COUP
    ------------------------------------------------------------ */
 
-function analyserCoupBot(color, move) {
-    const token = getToken(color, move.tokenIndex);
-
-    /* Analyse de la case d'arrivée par le MOTEUR. */
-    const analyse  = analyserCaseArrivee(color, move.to);
-    const captures = analyse.estProtegee ? [] : analyse.adversaires;
-
-    const surParcours = isCommonPosition(move.to);
-    const ringCible   = surParcours ? getRingIndex(color, move.to) : null;
-
-    const alliesCible  = surParcours ? alliesSurRing(color, ringCible, move.tokenIndex) : 0;
-    const creeBlocage  = RULES.BLOCAGE_AVEC_2_PIONS && alliesCible >= 1;
-
-    /* Le pion quitte-t-il un blocage de exactement 2 pions ? */
-    let casseBlocage = false;
-    if (RULES.BLOCAGE_AVEC_2_PIONS && isCommonPosition(move.from)) {
-        const blocDepart = getBlockAtRingIndex(getRingIndex(color, move.from));
-        casseBlocage = !!(blocDepart && blocDepart.color === color && blocDepart.count === 2);
-    }
-
-    return {
-        token: token,
-        surParcours: surParcours,
-        ringCible: ringCible,
-        captures: captures,
-        captureBloqueeParProtection: analyse.estProtegee && analyse.adversaires.length > 0,
-        cibleSure: surParcours ? isSafeRingIndex(ringCible) : true,
-        creeBlocage: creeBlocage,
-        casseBlocage: casseBlocage,
-        dangerCible:  risqueDeCapture(color, move.to, creeBlocage),
-        dangerDepart: risqueDeCapture(color, move.from, false),
-        ciblesFutures: ciblesAuProchainTour(color, move.to),
-        quitteCaseSure: isCommonPosition(move.from)
-            && isSafeRingIndex(getRingIndex(color, move.from))
-            && surParcours && !isSafeRingIndex(ringCible),
-        pionsEnBase:  tokensOf(color).filter(t => t.state === TOKEN_STATE.BASE).length,
-        pionsSurParcours: tokensOf(color).filter(t => t.state === TOKEN_STATE.TRACK).length,
-        adversairesDerriere: surParcours ? adversairesDerriere(color, ringCible, 12) : 0
-    };
-}
+/* analyserCoupBot : voir shared/bot.js. */
 
 
 /* ------------------------------------------------------------
    B6. NOTATION D'UN COUP
    ------------------------------------------------------------ */
 
-function scoreMove(color, move, level) {
-    const config = BOT_CONFIG[level] || BOT_CONFIG.normal;
-    const poids  = config.poids;
-    const info   = analyserCoupBot(color, move);
-
-    let score = 0;
-
-    /* 1. Amener un pion à l'arrivée. */
-    if (move.to === FINISH_POSITION) {
-        score += poids.arrivee;
-    } else if (move.to >= FIRST_HOME_POSITION) {
-        /* 4bis. Entrer dans le couloir d'arrivée : zone totalement sûre. */
-        score += poids.couloir + (move.to - FIRST_HOME_POSITION) * 3;
-    }
-
-    /* 2. Capturer un adversaire (jamais sur case protégée). */
-    if (info.captures.length > 0) {
-        score += poids.capture * info.captures.length;
-        info.captures.forEach(victime => {
-            score += poids.captureAvancee * Math.max(victime.position, 0);
-        });
-    }
-
-    /* 3. Sortir un pion de la base. */
-    if (move.from === -1) {
-        score += poids.sortieBase;
-        if (info.pionsSurParcours === 0) score += poids.sortieUrgente;
-        if (info.pionsEnBase >= 3)       score += poids.sortieUrgente * 0.5;
-    } else {
-        /* 4. Se rapprocher de l'arrivée. */
-        score += poids.progression * move.to;
-        score += poids.avance * (move.to - move.from);
-    }
-
-    /* 5. Occuper une case protégée. */
-    if (info.cibleSure && isCommonPosition(move.to)) score += poids.caseSure;
-
-    /* 6 + 9. Créer un blocage, et gêner les adversaires situés derrière. */
-    if (info.creeBlocage) {
-        score += poids.creerBlocage;
-        score += poids.pression * info.adversairesDerriere;
-    }
-
-    /* 7. Consolider : ne pas défaire un blocage utile sans raison. */
-    if (info.casseBlocage) score -= poids.garderBlocage;
-
-    /* 8 + 10. Éviter une case dangereuse, fuir une case dangereuse. */
-    score -= poids.danger * info.dangerCible;
-    score += poids.fuite  * info.dangerDepart;
-
-    /* Bonus : pouvoir capturer au prochain tour depuis la case visée. */
-    score += poids.opportunite * info.ciblesFutures;
-
-    /* Malus : quitter une case protégée pour une case ordinaire sans rien y gagner. */
-    if (info.quitteCaseSure && info.captures.length === 0 && !info.creeBlocage) {
-        score -= poids.quitteCaseSure;
-    }
-
-    return score;
-}
+/* scoreMove : voir shared/bot.js. */
 
 
 /* ------------------------------------------------------------
@@ -1916,48 +1528,7 @@ function scoreMove(color, move, level) {
    Le bot ne fait que choisir dans cette liste.
    ------------------------------------------------------------ */
 
-function chooseBotMove(color, diceValue, level) {
-    const moves = getLegalMoves(color, diceValue);
-    if (moves.length === 0) return null;
-    if (moves.length === 1) return moves[0];
-
-    const config = BOT_CONFIG[level] || BOT_CONFIG.normal;
-
-    const notes = moves.map(move => ({
-        move:  move,
-        score: scoreMove(color, move, level),
-        brut:  scoreMove(color, move, level)
-    }));
-
-    /* Petit bruit : deux parties identiques ne se jouent pas pareil. */
-    notes.forEach(n => { n.score += (Math.random() * 2 - 1) * config.jitter; });
-    notes.sort((a, b) => b.score - a.score);
-
-    const meilleur = notes[0].score;
-
-    /* Erreur « humaine », uniquement quand aucun coup décisif n'est en jeu. */
-    if (config.mistakeChance > 0
-        && meilleur < config.seuilCritique
-        && Math.random() < config.mistakeChance) {
-        return notes[Math.floor(Math.random() * notes.length)].move;
-    }
-
-    /* Tirage pondéré parmi les coups proches du meilleur.
-       Un coup nettement inférieur ne peut jamais être retenu. */
-    const candidats = notes.filter(n => n.score >= meilleur - config.tolerance);
-    if (candidats.length === 1) return candidats[0].move;
-
-    const base = meilleur - config.tolerance;
-    const poidsTirage = candidats.map(n => Math.pow(n.score - base + 1, 2));
-    const total = poidsTirage.reduce((a, b) => a + b, 0);
-
-    let tirage = Math.random() * total;
-    for (let i = 0; i < candidats.length; i++) {
-        tirage -= poidsTirage[i];
-        if (tirage <= 0) return candidats[i].move;
-    }
-    return candidats[0].move;
-}
+/* chooseBotMove : voir shared/bot.js. */
 
 
 /* ------------------------------------------------------------
