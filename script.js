@@ -34,7 +34,14 @@ const RULES = {
     /* Amener un pion à l'arrivée donne un tour supplémentaire. */
     TOUR_SUPPLEMENTAIRE_SUR_ARRIVEE: true,
     /* Un 6 sans aucun coup possible conserve le relancer. */
-    GARDER_LA_MAIN_SI_6_SANS_COUP:   true
+    GARDER_LA_MAIN_SI_6_SANS_COUP:   true,
+    /* RÈGLE PROJET — pont plus grand peut traverser un pont adverse.
+       Un pion d'un pont STRICTEMENT plus grand qu'un pont adverse devant lui
+       peut TRAVERSER ce pont adverse (sans s'y arrêter), si le dé le permet.
+       Seul le pion choisi bouge : les autres pions du pont restent sur leur case.
+       Atterrir SUR un pont adverse reste TOUJOURS interdit, quelle que soit la taille.
+       Mettre false pour revenir au Ludo standard (tout pont adverse bloque). */
+    PONT_PLUS_GRAND_TRAVERSE_BLOCAGE: true
 };
 
 
@@ -311,13 +318,39 @@ function getBlockAtRingIndex(ringIndex) {
     return null;
 }
 
+/* Nombre de pions d'une couleur sur la case où se trouve ce pion.
+   Sert à mesurer la taille du pont AVANT le déplacement. */
+function tailleDePontSurPosition(color, position) {
+    if (!isCommonPosition(position)) return 0;
+    return getRingOccupants(getRingIndex(color, position))
+        .filter(t => t.color === color).length;
+}
+
 function pathIsBlocked(color, fromPosition, toPosition) {
     if (!RULES.BLOCAGE_AVEC_2_PIONS) return false;
     const start = Math.max(fromPosition + 1, 0);
     const end   = Math.min(toPosition, LAST_COMMON_POSITION);
+
+    /* Taille du pont au moment du départ (le pion choisi est encore dedans). */
+    const maTaille = RULES.PONT_PLUS_GRAND_TRAVERSE_BLOCAGE
+        ? tailleDePontSurPosition(color, fromPosition)
+        : 0;
+
     for (let p = start; p <= end; p++) {
-        const block = getBlockAtRingIndex(getRingIndex(color, p));
-        if (block && block.color !== color) return true; // bloqué par un adversaire
+        const ringIndex = getRingIndex(color, p);
+        const block = getBlockAtRingIndex(ringIndex);
+        if (!block || block.color === color) continue;
+
+        /* 1) Atterrir SUR un pont adverse : TOUJOURS interdit. */
+        if (p === toPosition) return true;
+
+        /* 2) Ludo standard : tout pont adverse bloque le passage. */
+        if (!RULES.PONT_PLUS_GRAND_TRAVERSE_BLOCAGE) return true;
+
+        /* 3) Règle projet : traversée autorisée SEULEMENT si notre pont
+              est strictement plus grand que le pont adverse. */
+        if (maTaille <= block.count) return true;
+        /* sinon : on traverse (un seul pion), on continue d'examiner la suite. */
     }
     return false;
 }
